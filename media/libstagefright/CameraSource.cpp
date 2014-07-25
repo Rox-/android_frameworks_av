@@ -96,25 +96,15 @@ static int32_t getColorFormat(const char* colorFormat) {
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV420SP)) {
-#ifdef EXYNOS4_ENHANCEMENTS
-#ifdef BOARD_USE_SAMSUNG_V4L2_ION
-        static const int OMX_SEC_COLOR_FormatNV12LVirtualAddress = 0x7F000003;
-        return OMX_SEC_COLOR_FormatNV12VirtualAddress;
-#else
-        static const int OMX_SEC_COLOR_FormatNV12LPhysicalAddress = 0x7F000002;
-        return OMX_SEC_COLOR_FormatNV12LPhysicalAddress;
-#endif
-#else
         return OMX_COLOR_FormatYUV420SemiPlanar;
-#endif
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV422I)) {
-#if defined(TARGET_OMAP3) && defined(OMAP_ENHANCEMENT)
-        return OMX_COLOR_FormatCbYCrY;
-#else
         return OMX_COLOR_FormatYCbYCr;
-#endif
+    }
+
+    if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_UYV422I)) {
+        return OMX_COLOR_FormatCbYCrY;
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_RGB565)) {
@@ -125,11 +115,9 @@ static int32_t getColorFormat(const char* colorFormat) {
        return OMX_TI_COLOR_FormatYUV420PackedSemiPlanar;
     }
 
-#ifdef STE_HARDWARE
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV420MB)) {
        return OMX_STE_COLOR_FormatYUV420PackedSemiPlanarMB;
     }
-#endif
 
     ALOGE("Uknown color format (%s), please add it to "
          "CameraSource::getColorFormat", colorFormat);
@@ -559,22 +547,16 @@ status_t CameraSource::initWithCameraAccess(
 
     // XXX: query camera for the stride and slice height
     // when the capability becomes available.
-#ifdef STE_HARDWARE
     int stride = newCameraParams.getInt(CameraParameters::KEY_RECORD_STRIDE);
     int sliceHeight = newCameraParams.getInt(CameraParameters::KEY_RECORD_SLICE_HEIGHT);
-#endif
+
     mMeta = new MetaData;
     mMeta->setCString(kKeyMIMEType,  MEDIA_MIMETYPE_VIDEO_RAW);
     mMeta->setInt32(kKeyColorFormat, mColorFormat);
     mMeta->setInt32(kKeyWidth,       mVideoSize.width);
     mMeta->setInt32(kKeyHeight,      mVideoSize.height);
-#ifdef STE_HARDWARE
     mMeta->setInt32(kKeyStride,      stride != -1 ? stride : mVideoSize.width);
     mMeta->setInt32(kKeySliceHeight, sliceHeight != -1 ? sliceHeight : mVideoSize.height);
-#else
-    mMeta->setInt32(kKeyStride,      mVideoSize.width);
-    mMeta->setInt32(kKeySliceHeight, mVideoSize.height);
-#endif
     mMeta->setInt32(kKeyFrameRate,   mVideoFrameRate);
     return OK;
 }

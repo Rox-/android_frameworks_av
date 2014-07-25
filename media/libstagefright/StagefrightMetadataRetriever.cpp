@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
-/*--------------------------------------------------------------------------
-Copyright (c) 2012, Code Aurora Forum. All rights reserved.
---------------------------------------------------------------------------*/
-
 //#define LOG_NDEBUG 0
 #define LOG_TAG "StagefrightMetadataRetriever"
 #include <utils/Log.h>
+
+#include <sys/stat.h>
 
 #include "include/StagefrightMetadataRetriever.h"
 
@@ -32,7 +30,6 @@ Copyright (c) 2012, Code Aurora Forum. All rights reserved.
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/MediaDefs.h>
-#include <cutils/properties.h>
 
 namespace android {
 
@@ -88,7 +85,21 @@ status_t StagefrightMetadataRetriever::setDataSource(
         int fd, int64_t offset, int64_t length) {
     fd = dup(fd);
 
-    ALOGV("setDataSource(%d, %lld, %lld)", fd, offset, length);
+    // Get uri from fd (debug)
+    char uri[256];
+    snprintf(uri, sizeof(uri), "fd=%d", fd);// At least fd is traced
+
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "/proc/%d/fd/%d", gettid(), fd);
+    struct stat s;
+    if (lstat(buffer, &s) == 0) {
+        if ((s.st_mode & S_IFMT) == S_IFLNK) {
+            int len = readlink(buffer, uri, sizeof(uri));// Get uri from link
+            uri[len] = 0;
+        }
+    }
+
+    ALOGV("setDataSource(%d, %lld, %lld, %s)", fd, offset, length, uri);
 
     mParsedMetaData = false;
     mMetaData.clear();
@@ -99,6 +110,8 @@ status_t StagefrightMetadataRetriever::setDataSource(
 
     status_t err;
     if ((err = mSource->initCheck()) != OK) {
+        ALOGE("Unable to create data source for '%s'.", uri);
+
         mSource.clear();
 
         return err;
@@ -107,10 +120,15 @@ status_t StagefrightMetadataRetriever::setDataSource(
     mExtractor = MediaExtractor::Create(mSource);
 
     if (mExtractor == NULL) {
+        ALOGE("Unable to instantiate an extractor for '%s'.", uri);
+
         mSource.clear();
 
         return UNKNOWN_ERROR;
     }
+
+    // Stamp source with uri (debug)
+    mSource->setCharUri(uri);
 
     return OK;
 }
@@ -215,7 +233,7 @@ static VideoFrame *extractVideoFrameWithCodecFlags(
 
     sp<MetaData> meta = decoder->getFormat();
 
-    int32_t width, height, frame_width_rounded;
+    int32_t width, height;
     CHECK(meta->findInt32(kKeyWidth, &width));
     CHECK(meta->findInt32(kKeyHeight, &height));
 
@@ -238,28 +256,7 @@ static VideoFrame *extractVideoFrameWithCodecFlags(
     frame->mHeight = crop_bottom - crop_top + 1;
     frame->mDisplayWidth = frame->mWidth;
     frame->mDisplayHeight = frame->mHeight;
-#ifndef QCOM_HARDWARE
     frame->mSize = frame->mWidth * frame->mHeight * 2;
-#else
-
-    int32_t srcFormat;
-    CHECK(meta->findInt32(kKeyColorFormat, &srcFormat));
-
-    frame_width_rounded = frame->mWidth;
-    switch (srcFormat) {
-        case OMX_QCOM_COLOR_FormatYVU420SemiPlanar:
-        case OMX_COLOR_FormatYUV420SemiPlanar:
-        case OMX_QCOM_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:
-            {
-                frame_width_rounded = ((frame->mWidth + 3)/4)*4;
-                break;
-            }
-        default:
-            break;
-    }
-
-    frame->mSize = frame_width_rounded * frame->mHeight * 2;
-#endif
     frame->mData = new uint8_t[frame->mSize];
     frame->mRotationAngle = rotationAngle;
 
@@ -271,10 +268,8 @@ static VideoFrame *extractVideoFrameWithCodecFlags(
         frame->mDisplayHeight = displayHeight;
     }
 
-#ifndef QCOM_HARDWARE
     int32_t srcFormat;
     CHECK(meta->findInt32(kKeyColorFormat, &srcFormat));
-#endif
 
     ColorConverter converter(
             (OMX_COLOR_FORMATTYPE)srcFormat, OMX_COLOR_Format16bitRGB565);
@@ -285,11 +280,7 @@ static VideoFrame *extractVideoFrameWithCodecFlags(
                 width, height,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->mData,
-#ifdef QCOM_HARDWARE
-                frame_width_rounded,
-#else
                 frame->mWidth,
-#endif
                 frame->mHeight,
                 0, 0, frame->mWidth - 1, frame->mHeight - 1);
     } else {
@@ -321,20 +312,22 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
     ALOGV("getFrameAtTime: %lld us option: %d", timeUs, option);
 
     if (mExtractor.get() == NULL) {
-        ALOGV("no extractor.");
+        ALOGW("no extractor.");
         return NULL;
     }
 
     sp<MetaData> fileMeta = mExtractor->getMetaData();
 
     if (fileMeta == NULL) {
-        ALOGV("extractor doesn't publish metadata, failed to initialize?");
+        ALOGW("extractor doesn't publish metadata for %s , failed to initialize?",
+             mSource->getCharUri());
         return NULL;
     }
 
     int32_t drm = 0;
     if (fileMeta->findInt32(kKeyIsDRM, &drm) && drm != 0) {
-        ALOGE("frame grab not allowed.");
+        ALOGE("frame grab not allowed. Failed to extract thumbnail for %s",
+             mSource->getCharUri());
         return NULL;
     }
 
@@ -352,7 +345,8 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
     }
 
     if (i == n) {
-        ALOGV("no video track found.");
+        ALOGW("no video track found. Failed to extract thumbnail for %s",
+             mSource->getCharUri());
         return NULL;
     }
 
@@ -362,7 +356,9 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
     sp<MediaSource> source = mExtractor->getTrack(i);
 
     if (source.get() == NULL) {
-        ALOGV("unable to instantiate video track.");
+        ALOGW("unable to instantiate video track. "
+             "Failed to extract thumbnail for %s",
+             mSource->getCharUri());
         return NULL;
     }
 
@@ -377,66 +373,30 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
         memcpy(mAlbumArt->mData, data, dataSize);
     }
 
-#ifndef QCOM_HARDWARE
     VideoFrame *frame =
         extractVideoFrameWithCodecFlags(
                 &mClient, trackMeta, source, OMXCodec::kPreferSoftwareCodecs,
                 timeUs, option);
-#else
-    const char *mime;
-    bool success = trackMeta->findCString(kKeyMIMEType, &mime);
-    CHECK(success);
-    VideoFrame *frame = NULL;
 
-    /* TBD!
-    if ((!strcmp(mime, MEDIA_MIMETYPE_VIDEO_DIVX))||
-            (!strcmp(mime, MEDIA_MIMETYPE_VIDEO_DIVX311))||
-            (!strcmp(mime, MEDIA_MIMETYPE_VIDEO_DIVX4))||
-            (!strcmp(mime, MEDIA_MIMETYPE_VIDEO_WMV)))
-    {
-        ALOGV("Software codec is not being used for %s clips for thumbnail ",
-            mime);
-    } else {*/
-        char value[PROPERTY_VALUE_MAX];
-        if (property_get("debug.thumbnail.disablesw", value, NULL) &&
-            atoi(value)) {
-            ALOGE("Dont use sw decoder for thumbnail");
-        }
-        else {
-            frame = extractVideoFrameWithCodecFlags(
-                &mClient, trackMeta, source, OMXCodec::kSoftwareCodecsOnly,
-                timeUs, option);
-            if (frame == NULL){
-                // remake source to ensure its stopped before we start it
-                source.clear();
-                source = mExtractor->getTrack(i);
-                if (source.get() == NULL) {
-                    ALOGV("unable to instantiate video track.");
-                    return NULL;
-                }
-            }
-        }
-//    }
-#endif
     if (frame == NULL) {
-        ALOGV("Software decoder failed to extract thumbnail, "
-             "trying hardware decoder.");
+        ALOGV("Software decoder failed to extract thumbnail for %s, "
+             "trying hardware decoder.", mSource->getCharUri());
 
-        int32_t flags = 0;
-#ifdef QCOM_HARDWARE
-        char value[PROPERTY_VALUE_MAX];
-        if (property_get("ro.board.platform", value, "0")
-            && (!strncmp(value, "msm8660", sizeof("msm8660") - 1) ||
-                !strncmp(value, "msm8960", sizeof("msm8960") - 1) ||
-                !strncmp(value, "msm7x27a", sizeof("msm7x27a") - 1) ||
-                !strncmp(value, "msm7x30", sizeof("msm7x30") - 1) )) {
-            flags |= OMXCodec::kEnableThumbnailMode | OMXCodec::kHardwareCodecsOnly;
+        frame = extractVideoFrameWithCodecFlags(&mClient, trackMeta, source, 0,
+                        timeUs, option);
+
+        if (frame == NULL) {
+            ALOGE("Hardware decoder failed to extract thumbnail for %s",
+                 mSource->getCharUri());
+        } else {
+            ALOGV("Hardware decoder succeeded to extract thumbnail for %s",
+                 mSource->getCharUri());
         }
-#endif
-        frame = extractVideoFrameWithCodecFlags(&mClient, trackMeta,
-                    source, flags,
-                    timeUs, option);
+    } else {
+        ALOGV("Software decoder succeeded to extract thumbnail for %s",
+             mSource->getCharUri());
     }
+
     return frame;
 }
 
@@ -477,7 +437,7 @@ const char *StagefrightMetadataRetriever::extractMetadata(int keyCode) {
         return NULL;
     }
 
-    return mMetaData.valueAt(index).string();
+    return strdup(mMetaData.valueAt(index).string());
 }
 
 void StagefrightMetadataRetriever::parseMetaData() {
@@ -630,32 +590,6 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 mMetaData.add(
                         METADATA_KEY_MIMETYPE, String8("audio/x-matroska"));
             }
-        }
-
-        // Allow Audio only ASF clips to be considered as audio clips
-        if (!strcasecmp(fileMIME, "video/x-ms-asf") ||
-                !strcasecmp(fileMIME, "audio/x-ms-wma")) {
-            sp<MetaData> trackMeta = mExtractor->getTrackMetaData(0);
-            const char *trackMIME;
-            CHECK(trackMeta->findCString(kKeyMIMEType, &trackMIME));
-
-            if (!strcasecmp("audio/x-ms-wma", trackMIME)) {
-                mMetaData.add(
-                        METADATA_KEY_MIMETYPE, String8("audio/x-ms-wma"));
-            }
-        }
-        // Allow Audio only 3gp clips to be considered as audio clips
-        if (!strcasecmp(fileMIME, "video/3gpp") ||
-                !strcasecmp(fileMIME, "audio/mp4a-latm")) {
-            sp<MetaData> trackMeta = mExtractor->getTrackMetaData(0);
-            const char *trackMIME;
-            CHECK(trackMeta->findCString(kKeyMIMEType, &trackMIME));
-
-            if (!strcasecmp("audio/mp4a-latm", trackMIME)) {
-                mMetaData.add(
-                        METADATA_KEY_MIMETYPE, String8("audio/aac"));
-            }
-
         }
     }
 

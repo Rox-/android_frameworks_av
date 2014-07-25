@@ -1,10 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
 
-ifeq ($(ARCH_ARM_HAVE_ARMV7A),true)
 AAC_LIBRARY = fraunhofer
-else
-AAC_LIBRARY = pv
-endif
 
 ifeq ($(AAC_LIBRARY), fraunhofer)
   include $(CLEAR_VARS)
@@ -35,7 +31,6 @@ ifeq ($(AAC_LIBRARY), fraunhofer)
   include $(BUILD_SHARED_LIBRARY)
 
 else # pv
-  include $(CLEAR_VARS)
 
   LOCAL_SRC_FILES := \
           analysis_sub_band.cpp \

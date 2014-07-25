@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/*--------------------------------------------------------------------------
-Copyright (c) 2012, Code Aurora Forum. All rights reserved.
---------------------------------------------------------------------------*/
 
 #ifndef OMX_CODEC_H_
 
@@ -65,13 +60,6 @@ struct OMXCodec : public MediaSource,
 
         // Secure decoding mode
         kUseSecureInputBuffers = 256,
-#ifdef QCOM_HARDWARE
-        kEnableThumbnailMode = 512,
-
-        kEnableGrallocUsagePrivateCPBuffer = 16384,
-
-        kUseMinBufferCount = 32768,
-#endif
     };
     static sp<MediaSource> Create(
             const sp<IOMX> &omx,
@@ -98,9 +86,7 @@ struct OMXCodec : public MediaSource,
     // from MediaBufferObserver
     virtual void signalBufferReturned(MediaBuffer *buffer);
 
-#ifdef STE_HARDWARE
     static uint32_t OmxToHALFormat(OMX_COLOR_FORMATTYPE omxValue);
-#endif
 
     enum Quirks {
         kNeedsFlushBeforeDisable              = 1,
@@ -117,13 +103,8 @@ struct OMXCodec : public MediaSource,
         kAvoidMemcopyInputRecordingFrames     = 2048,
         kRequiresLargerEncoderOutputBuffer    = 4096,
         kOutputBuffersAreUnreadable           = 8192,
-#ifdef QCOM_HARDWARE
-        kRequiresGlobalFlush                  = 0x20000000, // 2^29
-        kRequiresWMAProComponent              = 0x40000000, //2^30
-#endif
-#ifdef STE_HARDWARE
         kRequiresStoreMetaDataBeforeIdle      = 16384,
-#endif
+        kOverrideDefaultAVCProfile            = 32768,
     };
 
     // for use by ACodec
@@ -159,18 +140,10 @@ private:
         EXECUTING_TO_IDLE,
         IDLE_TO_LOADED,
         RECONFIGURING,
-#ifdef QCOM_HARDWARE
-        PAUSING,
-        FLUSHING,
-        PAUSED,
-#endif
         ERROR
     };
 
     enum {
-#ifdef QCOM_HARDWARE
-        kPortIndexBoth   = -1,
-#endif
         kPortIndexInput  = 0,
         kPortIndexOutput = 1
     };
@@ -259,12 +232,6 @@ private:
     // a video encoder.
     List<int64_t> mDecodingTimeList;
 
-#ifdef QCOM_HARDWARE
-    bool mThumbnailMode;
-    bool mSPSParsed;
-    bool mUseArbitraryMode;
-#endif
-
     OMXCodec(const sp<IOMX> &omx, IOMX::node_id node,
              uint32_t quirks, uint32_t flags,
              bool isEncoder, const char *mime, const char *componentName,
@@ -283,10 +250,8 @@ private:
             int32_t aacProfile, bool isADTS);
 
     void setG711Format(int32_t numChannels);
-#ifdef QCOM_HARDWARE
-    void setQCELPFormat( int32_t sampleRate, int32_t numChannels, int32_t bitRate);
-    void setEVRCFormat( int32_t sampleRate, int32_t numChannels, int32_t bitRate);
-#endif
+    status_t setWMAFormat(const sp<MetaData> &meta);
+
     status_t setVideoPortFormatType(
             OMX_U32 portIndex,
             OMX_VIDEO_CODINGTYPE compressionFormat,
@@ -389,26 +354,14 @@ private:
 
     int64_t getDecodingTimeUs();
 
-#ifdef QCOM_HARDWARE
-    void parseFlags();
-#endif
     status_t parseAVCCodecSpecificData(
             const void *data, size_t size,
             unsigned *profile, unsigned *level);
-
-#ifdef QCOM_HARDWARE
-    status_t flushBuffersOnError(void);
-#endif
+    status_t parseVC1CodecSpecificData(
+            const void *data, size_t size);
 
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
-#ifdef QCOM_HARDWARE
-    status_t setWMAFormat(const sp<MetaData> &inputFormat);
-    void setAC3Format(int32_t numChannels, int32_t sampleRate);
-    status_t releaseMediaBuffersOn(OMX_U32 portIndex);
-
-    bool mNumBFrames;
-#endif
 };
 
 struct CodecCapabilities {

@@ -99,9 +99,6 @@ private:
     bool mSyncQueues;
 
     bool mPaused;
-#ifdef QCOM_HARDWARE
-    bool mWasPaused; // if paused then store the info
-#endif
 
     int64_t mLastPositionUpdateUs;
     int64_t mVideoLateByUs;

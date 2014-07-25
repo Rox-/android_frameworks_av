@@ -80,12 +80,7 @@ public:
                                     uint32_t channels = 0,
                                     audio_in_acoustics_t acoustics =
                                             (audio_in_acoustics_t)0 /*AUDIO_IN_ACOUSTICS_NONE*/,
-#ifdef STE_AUDIO
-                                    int audioSession = 0,
-                                    audio_input_clients *inputClientId = NULL);
-#else
                                     int audioSession = 0);
-#endif
     virtual status_t startInput(audio_io_handle_t input);
     virtual status_t stopInput(audio_io_handle_t input);
     virtual void releaseInput(audio_io_handle_t input);
@@ -140,9 +135,6 @@ public:
     virtual status_t startTone(audio_policy_tone_t tone, audio_stream_type_t stream);
     virtual status_t stopTone();
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
-#if defined(QCOM_HARDWARE) && defined(QCOM_FM_ENABLED)
-    virtual status_t setFmVolume(float volume, int delayMs = 0);
-#endif
 
 private:
                         AudioPolicyService();
@@ -166,10 +158,7 @@ private:
             STOP_TONE,
             SET_VOLUME,
             SET_PARAMETERS,
-            SET_VOICE_VOLUME,
-#if defined(QCOM_HARDWARE) && defined(QCOM_FM_ENABLED)
-            SET_FM_VOLUME
-#endif
+            SET_VOICE_VOLUME
         };
 
         AudioCommandThread (String8 name);
@@ -190,9 +179,6 @@ private:
                     status_t    parametersCommand(audio_io_handle_t ioHandle,
                                             const char *keyValuePairs, int delayMs = 0);
                     status_t    voiceVolumeCommand(float volume, int delayMs = 0);
-#if defined(QCOM_HARDWARE) && defined(QCOM_FM_ENABLED)
-                    status_t    fmVolumeCommand(float volume, int delayMs = 0);
-#endif
                     void        insertCommand_l(AudioCommand *command, int delayMs = 0);
 
     private:
@@ -236,13 +222,6 @@ private:
         public:
             float mVolume;
         };
-
-#if defined(QCOM_HARDWARE) && defined(QCOM_FM_ENABLED)
-        class FmVolumeData {
-        public:
-            float mVolume;
-        };
-#endif
 
         Mutex   mLock;
         Condition mWaitWorkCV;

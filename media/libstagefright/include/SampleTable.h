@@ -49,7 +49,7 @@ public:
     status_t setTimeToSampleParams(off64_t data_offset, size_t data_size);
 
     status_t setCompositionTimeToSampleParams(
-            off64_t data_offset, size_t data_size);
+            off64_t data_offset, size_t data_size, uint32_t *consumed_offset);
 
     status_t setSyncSampleParams(off64_t data_offset, size_t data_size);
 
@@ -65,7 +65,7 @@ public:
             uint32_t sampleIndex,
             off64_t *offset,
             size_t *size,
-            uint64_t *compositionTime,
+            uint32_t *compositionTime,
             bool *isSyncSample = NULL);
 
     enum {
@@ -74,14 +74,14 @@ public:
         kFlagClosest
     };
     status_t findSampleAtTime(
-            uint64_t req_time, uint32_t *sample_index, uint32_t flags);
+            uint32_t req_time, uint32_t *sample_index, uint32_t flags);
 
     status_t findSyncSampleNear(
             uint32_t start_sample_index, uint32_t *sample_index,
             uint32_t flags);
 
     status_t findThumbnailSample(uint32_t *sample_index);
-    uint32_t getNumSyncSamples();
+
 protected:
     ~SampleTable();
 
@@ -113,7 +113,7 @@ private:
 
     struct SampleTimeEntry {
         uint32_t mSampleIndex;
-        uint64_t mCompositionTime;
+        uint32_t mCompositionTime;
     };
     SampleTimeEntry *mSampleTimeEntries;
 

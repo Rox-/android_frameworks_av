@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2012, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*--------------------------------------------------------------------------
-Copyright (c) 2012, Code Aurora Forum. All rights reserved.
---------------------------------------------------------------------------*/
 
 #ifndef META_DATA_H_
 
@@ -54,7 +50,6 @@ enum {
     kKeyBitRate           = 'brte',  // int32_t (bps)
     kKeyESDS              = 'esds',  // raw data
     kKeyAACProfile        = 'aacp',  // int32_t
-    kKeyAacCodecSpecificData = 'nacc' , // for native aac files
     kKeyAVCC              = 'avcc',  // raw data
     kKeyD263              = 'd263',  // raw data
     kKeyVorbisInfo        = 'vinf',  // raw data
@@ -122,23 +117,7 @@ enum {
 
     kKeyValidSamples      = 'valD',  // int32_t
 
-    kKeyEditOffset        = 'edof',  // bool (int64_t)
-
     kKeyIsUnreadable      = 'unre',  // bool (int32_t)
-    kKeyRawCodecSpecificData = 'rcsd',  // raw data - added to support mmParser
-    kKeyDivXVersion       = 'DivX',  // int32_t
-    kKeyDivXDrm           = 'QDrm',  // void *
-    kKeyWMAEncodeOpt      = 'eopt',  // int32_t
-    kKeyWMABlockAlign     = 'blka',  // int32_t
-    kKeyWMAVersion        = 'wmav',  // int32_t
-    kKeyWMAAdvEncOpt1     = 'ade1',   // int16_t
-    kKeyWMAAdvEncOpt2     = 'ade2',  // int32_t
-    kKeyWMAFormatTag      = 'fmtt',  // int64_t
-    kKeyWMABitspersample  = 'bsps',  // int64_t
-    kKeyWMAVirPktSize     = 'vpks',  // int64_t
-    kKeyWMAChannelMask    = 'chmk',  // int32_t
-
-    kKeyFileFormat        = 'ffmt',  // cstring
 
     // An indication that a video buffer has been rendered.
     kKeyRendered          = 'rend',  // bool (int32_t)
@@ -148,8 +127,6 @@ enum {
 
     // To store the timed text format data
     kKeyTextFormatData    = 'text',  // raw data
-    kkeyAacFormatAdif     = 'adif', // bool (int32_t)
-    kkeyAacFormatLtp      = 'ltp',
 
     kKeyRequiresSecureBuffers = 'secu',  // bool (int32_t)
 
@@ -169,10 +146,6 @@ enum {
     // plain sizes are 0, i.e. all fragments are encrypted.
     // To programmatically set these array, use the MetaData::setData API, i.e.
     // const size_t encSizes[];
-
-    //DTS subtype
-    kKeyDTSSubtype        = 'dtss',   //int32_t
-
     // meta->setData(
     //  kKeyEncryptedSizes, 0 /* type */, encSizes, sizeof(encSizes));
     // A plain sizes array by itself makes no sense.
@@ -182,27 +155,19 @@ enum {
     kKeyCryptoIV          = 'cryI',  // uint8_t[16]
     kKeyCryptoMode        = 'cryM',  // int32_t
 
-#ifdef QCOM_HARDWARE
-    //Extractor sets this
-    kKeyUseArbitraryMode  = 'ArbM'  //bool (int32_t)
-#endif
+    // To store the extracted metadata in VC1 streams
+    kKeyVC1Info = 'info',  //raw data
+
+    // To store the extracted metadata in WMA streams
+    kKeyWMAInfo = 'wmai', //raw data
 };
 
 enum {
     kTypeESDS        = 'esds',
     kTypeAVCC        = 'avcc',
     kTypeD263        = 'd263',
-};
-enum {
-    kTypeDivXVer_3_11,
-    kTypeDivXVer_4,
-    kTypeDivXVer_5,
-    kTypeDivXVer_6,
-};
-enum {
-    kTypeWMA,
-    kTypeWMAPro,
-    kTypeWMALossLess,
+    kTypeVC1         = 'wmv3',
+    kTypeWMA         = 'wmau',
 };
 
 class MetaData : public RefBase {

@@ -43,7 +43,7 @@ FMRadioSource::FMRadioSource()
                      AUDIO_IN_ACOUSTICS_NS_DISABLE  |
                      AUDIO_IN_ACOUSTICS_TX_DISABLE );
 
-    audio_io_handle_t input = AudioSystem::getInput(AUDIO_SOURCE_FM_RX,
+    audio_io_handle_t input = AudioSystem::getInput(AUDIO_SOURCE_FM_RADIO_RX,
                                                     kSampleRate,
                                                     kAudioFormat,
                                                     kChannelMask,

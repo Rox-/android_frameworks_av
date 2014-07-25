@@ -26,9 +26,6 @@
 #include <camera/CameraParameters.h>
 #include <system/window.h>
 #include <hardware/camera.h>
-#ifdef BOARD_USE_SAMSUNG_V4L2_ION
-#include <binder/MemoryHeapBaseIon.h>
-#endif
 
 namespace android {
 
@@ -116,14 +113,6 @@ public:
         ALOGV("%s(%s) buf %p", __FUNCTION__, mName.string(), buf.get());
 
         if (mDevice->ops->set_preview_window) {
-#ifdef QCOM_HARDWARE
-#ifndef NO_UPDATE_PREVIEW
-            ALOGV("%s buf %p mPreviewWindow %p", __FUNCTION__, buf.get(), mPreviewWindow.get());
-            if (mPreviewWindow.get() && (buf.get() != mPreviewWindow.get())) {
-                 mDevice->ops->set_preview_window(mDevice, 0);
-            }
-#endif
-#endif
             mPreviewWindow = buf;
             mHalPreviewWindow.user = this;
             ALOGV("%s &mHalPreviewWindow %p mHalPreviewWindow.user %p", __FUNCTION__,
@@ -467,17 +456,13 @@ private:
         ALOGV("%s", __FUNCTION__);
         CameraHardwareInterface *__this =
                 static_cast<CameraHardwareInterface *>(user);
-        if (data != NULL) {
-          sp<CameraHeapMemory> mem(static_cast<CameraHeapMemory *>(data->handle));
-          if (index >= mem->mNumBufs) {
+        sp<CameraHeapMemory> mem(static_cast<CameraHeapMemory *>(data->handle));
+        if (index >= mem->mNumBufs) {
             ALOGE("%s: invalid buffer index %d, max allowed is %d", __FUNCTION__,
                  index, mem->mNumBufs);
             return;
-          }
-          __this->mDataCb(msg_type, mem->mBuffers[index], metadata, __this->mCbUser);
-        } else {
-          __this->mDataCb(msg_type, NULL, metadata, __this->mCbUser);
         }
+        __this->mDataCb(msg_type, mem->mBuffers[index], metadata, __this->mCbUser);
     }
 
     static void __data_cb_timestamp(nsecs_t timestamp, int32_t msg_type,
@@ -509,11 +494,7 @@ private:
                          mBufSize(buf_size),
                          mNumBufs(num_buffers)
         {
-#ifdef BOARD_USE_SAMSUNG_V4L2_ION
-            mHeap = new MemoryHeapBaseIon(fd, buf_size * num_buffers);
-#else
             mHeap = new MemoryHeapBase(fd, buf_size * num_buffers);
-#endif
             commonInitialization();
         }
 
@@ -521,11 +502,7 @@ private:
                          mBufSize(buf_size),
                          mNumBufs(num_buffers)
         {
-#ifdef BOARD_USE_SAMSUNG_V4L2_ION
-            mHeap = new MemoryHeapBaseIon(buf_size * num_buffers);
-#else
             mHeap = new MemoryHeapBase(buf_size * num_buffers);
-#endif
             commonInitialization();
         }
 
@@ -664,9 +641,6 @@ private:
 
     static int __set_usage(struct preview_stream_ops* w, int usage)
     {
-#ifdef SEMC_ICS_CAMERA_BLOB
-        usage |= GRALLOC_USAGE_PRIVATE_0;
-#endif
         ANativeWindow *a = anw(w);
         return native_window_set_usage(a, usage);
     }

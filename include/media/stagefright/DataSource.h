@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- * Copyright (c) 2012, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,10 +58,6 @@ public:
     // May return ERROR_UNSUPPORTED.
     virtual status_t getSize(off64_t *size);
 
-#ifdef QCOM_HARDWARE
-    virtual status_t getCurrentOffset(off64_t *size);
-#endif
-
     virtual uint32_t flags() {
         return 0;
     }
@@ -82,8 +77,7 @@ public:
             const sp<DataSource> &source, String8 *mimeType,
             float *confidence, sp<AMessage> *meta);
 
-    //if isExtendedExtractor = true, store the location of the sniffer to register
-    static void RegisterSniffer(SnifferFunc func, bool isExtendedExtractor = false);
+    static void RegisterSniffer(SnifferFunc func);
     static void RegisterDefaultSniffers();
 
     // for DRM
@@ -96,6 +90,9 @@ public:
         return String8();
     }
 
+    void setCharUri(const char* uri);
+    const char* getCharUri();
+
     virtual String8 getMIMEType() const;
 
 protected:
@@ -104,10 +101,11 @@ protected:
 private:
     static Mutex gSnifferMutex;
     static List<SnifferFunc> gSniffers;
-    static List<SnifferFunc>::iterator extendedSnifferPosition;
 
     DataSource(const DataSource &);
     DataSource &operator=(const DataSource &);
+
+    String8 mUri;
 };
 
 }  // namespace android

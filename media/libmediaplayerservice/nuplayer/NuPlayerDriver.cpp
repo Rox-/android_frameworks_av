@@ -108,24 +108,9 @@ status_t NuPlayerDriver::prepare() {
 }
 
 status_t NuPlayerDriver::prepareAsync() {
-#ifdef QCOM_HARDWARE
-    status_t err = UNKNOWN_ERROR;
-    if (mPlayer != NULL) {
-        err = mPlayer->prepareAsync();
-    }
-
-    if (err == OK) {
-        err = prepare();
-        notifyListener(MEDIA_PREPARED);
-    } else if (err == -EWOULDBLOCK) {
-        // this case only happens for DASH
-        return OK;
-    }
-#else
     status_t err = prepare();
 
     notifyListener(MEDIA_PREPARED);
-#endif
 
     return err;
 }
@@ -282,27 +267,11 @@ void NuPlayerDriver::setAudioSink(const sp<AudioSink> &audioSink) {
 }
 
 status_t NuPlayerDriver::setParameter(int key, const Parcel &request) {
-    status_t err = INVALID_OPERATION;
-#ifdef QCOM_HARDWARE
-    err = UNKNOWN_ERROR;
-    if (mPlayer != NULL)
-    {
-        err = mPlayer->setParameter(key, request);
-    }
-#endif
-    return err;
+    return INVALID_OPERATION;
 }
 
 status_t NuPlayerDriver::getParameter(int key, Parcel *reply) {
-    status_t err = INVALID_OPERATION;
-#ifdef QCOM_HARDWARE
-    err = UNKNOWN_ERROR;
-    if (mPlayer != NULL)
-    {
-        err = mPlayer->getParameter(key, reply);
-    }
-#endif
-    return err;
+    return INVALID_OPERATION;
 }
 
 status_t NuPlayerDriver::getMetadata(

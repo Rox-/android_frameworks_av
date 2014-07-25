@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#ifndef NU_CACHED_SOURCE_2_H_
+#ifndef NU_CACHED_FILE_SOURCE_2_H_
 
-#define NU_CACHED_SOURCE_2_H_
+#define NU_CACHED_FILE_SOURCE_2_H_
 
 #include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/AHandlerReflector.h>
@@ -25,10 +25,10 @@
 namespace android {
 
 struct ALooper;
-struct PageCache;
+struct PageFileCache;
 
-struct NuCachedSource2 : public DataSource {
-    NuCachedSource2(
+struct NuCachedFileSource2 : public DataSource {
+    NuCachedFileSource2(
             const sp<DataSource> &source,
             const char *cacheConfig = NULL,
             bool disconnectAtHighwatermark = false);
@@ -65,19 +65,25 @@ struct NuCachedSource2 : public DataSource {
             bool *disconnectAtHighwatermark);
 
 protected:
-    virtual ~NuCachedSource2();
+    virtual ~NuCachedFileSource2();
 
 private:
-    friend struct AHandlerReflector<NuCachedSource2>;
+    friend struct AHandlerReflector<NuCachedFileSource2>;
 
     enum {
         kPageSize                       = 65536,
-        kDefaultHighWaterThreshold      = 20 * 1024 * 1024,
-        kDefaultLowWaterThreshold       = 4 * 1024 * 1024,
+        kDefaultHighWaterThreshold      = 5 * 1024 * 1024,
+        kDefaultLowWaterThreshold       = 512 * 1024,
 
         // Read data after a 15 sec timeout whether we're actively
         // fetching or not.
         kDefaultKeepAliveIntervalUs     = 15000000,
+        kFetchIntervalUs         = 100000ll,
+        kFetchDeferredIntervalUs = 10000ll,
+
+        kBypassCacheCheckTrigger = 100,
+        kBypassCacheDuration     = 1000,
+        kBypassCacheThreshold    = 10 // in percent
     };
 
     enum {
@@ -90,20 +96,21 @@ private:
     };
 
     sp<DataSource> mSource;
-    sp<AHandlerReflector<NuCachedSource2> > mReflector;
+    sp<AHandlerReflector<NuCachedFileSource2> > mReflector;
     sp<ALooper> mLooper;
 
     Mutex mSerializer;
     mutable Mutex mLock;
     Condition mCondition;
 
-    PageCache *mCache;
+    PageFileCache *mCache;
     off64_t mCacheOffset;
     status_t mFinalStatus;
     off64_t mLastAccessPos;
     sp<AMessage> mAsyncResult;
     bool mFetching;
     int64_t mLastFetchTimeUs;
+    int64_t mLastFetchEventTimeUs;
 
     int32_t mNumRetriesLeft;
 
@@ -114,6 +121,9 @@ private:
     int64_t mKeepAliveIntervalUs;
 
     bool mDisconnectAtHighwatermark;
+    unsigned int mNbrSeeks;
+    unsigned int mNbrReads;
+    bool mBypassCache;
 
     void onMessageReceived(const sp<AMessage> &msg);
     void onFetch();
@@ -131,9 +141,9 @@ private:
     void updateCacheParamsFromSystemProperty();
     void updateCacheParamsFromString(const char *s);
 
-    DISALLOW_EVIL_CONSTRUCTORS(NuCachedSource2);
+    DISALLOW_EVIL_CONSTRUCTORS(NuCachedFileSource2);
 };
 
 }  // namespace android
 
-#endif  // NU_CACHED_SOURCE_2_H_
+#endif  // NU_CACHED_FILE_SOURCE_2_H_

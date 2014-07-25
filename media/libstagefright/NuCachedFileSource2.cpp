@@ -15,10 +15,10 @@
  */
 
 //#define LOG_NDEBUG 0
-#define LOG_TAG "NuCachedSource2"
+#define LOG_TAG "NuCachedFileSource2"
 #include <utils/Log.h>
 
-#include "include/NuCachedSource2.h"
+#include "include/NuCachedFileSource2.h"
 #include "include/HTTPBase.h"
 
 #include <cutils/properties.h>
@@ -28,9 +28,9 @@
 
 namespace android {
 
-struct PageCache {
-    PageCache(size_t pageSize);
-    ~PageCache();
+struct PageFileCache {
+    PageFileCache(size_t pageSize);
+    ~PageFileCache();
 
     struct Page {
         void *mData;
@@ -58,20 +58,20 @@ private:
 
     void freePages(List<Page *> *list);
 
-    DISALLOW_EVIL_CONSTRUCTORS(PageCache);
+    DISALLOW_EVIL_CONSTRUCTORS(PageFileCache);
 };
 
-PageCache::PageCache(size_t pageSize)
+PageFileCache::PageFileCache(size_t pageSize)
     : mPageSize(pageSize),
       mTotalSize(0) {
 }
 
-PageCache::~PageCache() {
+PageFileCache::~PageFileCache() {
     freePages(&mActivePages);
     freePages(&mFreePages);
 }
 
-void PageCache::freePages(List<Page *> *list) {
+void PageFileCache::freePages(List<Page *> *list) {
     List<Page *>::iterator it = list->begin();
     while (it != list->end()) {
         Page *page = *it;
@@ -84,7 +84,7 @@ void PageCache::freePages(List<Page *> *list) {
     }
 }
 
-PageCache::Page *PageCache::acquirePage() {
+PageFileCache::Page *PageFileCache::acquirePage() {
     if (!mFreePages.empty()) {
         List<Page *>::iterator it = mFreePages.begin();
         Page *page = *it;
@@ -100,17 +100,17 @@ PageCache::Page *PageCache::acquirePage() {
     return page;
 }
 
-void PageCache::releasePage(Page *page) {
+void PageFileCache::releasePage(Page *page) {
     page->mSize = 0;
     mFreePages.push_back(page);
 }
 
-void PageCache::appendPage(Page *page) {
+void PageFileCache::appendPage(Page *page) {
     mTotalSize += page->mSize;
     mActivePages.push_back(page);
 }
 
-size_t PageCache::releaseFromStart(size_t maxBytes) {
+size_t PageFileCache::releaseFromStart(size_t maxBytes) {
     size_t bytesReleased = 0;
 
     while (maxBytes > 0 && !mActivePages.empty()) {
@@ -134,7 +134,7 @@ size_t PageCache::releaseFromStart(size_t maxBytes) {
     return bytesReleased;
 }
 
-void PageCache::copy(size_t from, void *data, size_t size) {
+void PageFileCache::copy(size_t from, void *data, size_t size) {
     ALOGV("copy from %d size %d", from, size);
 
     if (size == 0) {
@@ -177,24 +177,28 @@ void PageCache::copy(size_t from, void *data, size_t size) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-NuCachedSource2::NuCachedSource2(
+NuCachedFileSource2::NuCachedFileSource2(
         const sp<DataSource> &source,
         const char *cacheConfig,
         bool disconnectAtHighwatermark)
     : mSource(source),
-      mReflector(new AHandlerReflector<NuCachedSource2>(this)),
+      mReflector(new AHandlerReflector<NuCachedFileSource2>(this)),
       mLooper(new ALooper),
-      mCache(new PageCache(kPageSize)),
+      mCache(new PageFileCache(kPageSize)),
       mCacheOffset(0),
       mFinalStatus(OK),
       mLastAccessPos(0),
       mFetching(true),
       mLastFetchTimeUs(-1),
+      mLastFetchEventTimeUs(0),
       mNumRetriesLeft(kMaxNumRetries),
       mHighwaterThresholdBytes(kDefaultHighWaterThreshold),
       mLowwaterThresholdBytes(kDefaultLowWaterThreshold),
       mKeepAliveIntervalUs(kDefaultKeepAliveIntervalUs),
-      mDisconnectAtHighwatermark(disconnectAtHighwatermark) {
+      mDisconnectAtHighwatermark(disconnectAtHighwatermark),
+      mNbrSeeks(0),
+      mNbrReads(0),
+      mBypassCache(false) {
     // We are NOT going to support disconnect-at-highwatermark indefinitely
     // and we are not guaranteeing support for client-specified cache
     // parameters. Both of these are temporary measures to solve a specific
@@ -211,7 +215,7 @@ NuCachedSource2::NuCachedSource2(
         mKeepAliveIntervalUs = 0;
     }
 
-    mLooper->setName("NuCachedSource2");
+    mLooper->setName("NuCachedFileSource2");
     mLooper->registerHandler(mReflector);
     mLooper->start();
 
@@ -219,7 +223,7 @@ NuCachedSource2::NuCachedSource2(
     (new AMessage(kWhatFetchMore, mReflector->id()))->post();
 }
 
-NuCachedSource2::~NuCachedSource2() {
+NuCachedFileSource2::~NuCachedFileSource2() {
     mLooper->stop();
     mLooper->unregisterHandler(mReflector->id());
 
@@ -227,7 +231,7 @@ NuCachedSource2::~NuCachedSource2() {
     mCache = NULL;
 }
 
-status_t NuCachedSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
+status_t NuCachedFileSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
     if (mSource->flags() & kIsHTTPBasedSource) {
         HTTPBase* source = static_cast<HTTPBase *>(mSource.get());
         return source->getEstimatedBandwidthKbps(kbps);
@@ -235,7 +239,7 @@ status_t NuCachedSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
     return ERROR_UNSUPPORTED;
 }
 
-status_t NuCachedSource2::setCacheStatCollectFreq(int32_t freqMs) {
+status_t NuCachedFileSource2::setCacheStatCollectFreq(int32_t freqMs) {
     if (mSource->flags() & kIsHTTPBasedSource) {
         HTTPBase *source = static_cast<HTTPBase *>(mSource.get());
         return source->setBandwidthStatCollectFreq(freqMs);
@@ -243,21 +247,21 @@ status_t NuCachedSource2::setCacheStatCollectFreq(int32_t freqMs) {
     return ERROR_UNSUPPORTED;
 }
 
-status_t NuCachedSource2::initCheck() const {
+status_t NuCachedFileSource2::initCheck() const {
     return mSource->initCheck();
 }
 
-status_t NuCachedSource2::getSize(off64_t *size) {
+status_t NuCachedFileSource2::getSize(off64_t *size) {
     return mSource->getSize(size);
 }
 
-uint32_t NuCachedSource2::flags() {
-    // Remove HTTP related flags since NuCachedSource2 is not HTTP-based.
+uint32_t NuCachedFileSource2::flags() {
+    // Remove HTTP related flags since NuCachedFileSource2 is not HTTP-based.
     uint32_t flags = mSource->flags() & ~(kWantsPrefetching | kIsHTTPBasedSource);
     return (flags | kIsCachingDataSource);
 }
 
-void NuCachedSource2::onMessageReceived(const sp<AMessage> &msg) {
+void NuCachedFileSource2::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatFetchMore:
         {
@@ -276,7 +280,7 @@ void NuCachedSource2::onMessageReceived(const sp<AMessage> &msg) {
     }
 }
 
-void NuCachedSource2::fetchInternal() {
+void NuCachedFileSource2::fetchInternal() {
     ALOGV("fetchInternal");
 
     bool reconnect = false;
@@ -309,7 +313,7 @@ void NuCachedSource2::fetchInternal() {
         }
     }
 
-    PageCache::Page *page = mCache->acquirePage();
+    PageFileCache::Page *page = mCache->acquirePage();
 
     ssize_t n = mSource->readAt(
             mCacheOffset + mCache->totalSize(), page->mData, kPageSize);
@@ -339,28 +343,19 @@ void NuCachedSource2::fetchInternal() {
     }
 }
 
-void NuCachedSource2::onFetch() {
+void NuCachedFileSource2::onFetch() {
     ALOGV("onFetch");
 
+    int64_t now = ALooper::GetNowUs();
     if (mFinalStatus != OK && mNumRetriesLeft == 0) {
         ALOGV("EOS reached, done prefetching for now");
         mFetching = false;
     }
 
-    bool keepAlive =
-        !mFetching
-            && mFinalStatus == OK
-            && mKeepAliveIntervalUs > 0
-            && ALooper::GetNowUs() >= mLastFetchTimeUs + mKeepAliveIntervalUs;
-
-    if (mFetching || keepAlive) {
-        if (keepAlive) {
-            ALOGI("Keep alive");
-        }
-
+    if (mFetching) {
         fetchInternal();
 
-        mLastFetchTimeUs = ALooper::GetNowUs();
+        mLastFetchTimeUs = now;
 
         if (mFetching && mCache->totalSize() >= mHighwaterThresholdBytes) {
             ALOGI("Cache full, done prefetching for now");
@@ -378,22 +373,14 @@ void NuCachedSource2::onFetch() {
         restartPrefetcherIfNecessary_l();
     }
 
-    int64_t delayUs;
     if (mFetching) {
-        if (mFinalStatus != OK && mNumRetriesLeft > 0) {
-            // We failed this time and will try again in 3 seconds.
-            delayUs = 3000000ll;
-        } else {
-            delayUs = 0;
-        }
-    } else {
-        delayUs = 100000ll;
+        mLastFetchEventTimeUs = now;
+        (new AMessage(kWhatFetchMore, mReflector->id()))->post();
     }
 
-    (new AMessage(kWhatFetchMore, mReflector->id()))->post(delayUs);
 }
 
-void NuCachedSource2::onRead(const sp<AMessage> &msg) {
+void NuCachedFileSource2::onRead(const sp<AMessage> &msg) {
     ALOGV("onRead");
 
     int64_t offset;
@@ -408,7 +395,12 @@ void NuCachedSource2::onRead(const sp<AMessage> &msg) {
     ssize_t result = readInternal(offset, data, size);
 
     if (result == -EAGAIN) {
-        msg->post(50000);
+        msg->post(10000);
+        int64_t now = ALooper::GetNowUs();
+        if (now - mLastFetchEventTimeUs > kFetchDeferredIntervalUs) {
+            mLastFetchEventTimeUs = now;
+            (new AMessage(kWhatFetchMore, mReflector->id()))->post();
+        }
         return;
     }
 
@@ -422,9 +414,9 @@ void NuCachedSource2::onRead(const sp<AMessage> &msg) {
     mCondition.signal();
 }
 
-void NuCachedSource2::restartPrefetcherIfNecessary_l(
+void NuCachedFileSource2::restartPrefetcherIfNecessary_l(
         bool ignoreLowWaterThreshold, bool force) {
-    static const size_t kGrayArea = 1024 * 1024;
+    static const size_t kGrayArea = 3 * 1024 * 1024;
 
     if (mFetching || (mFinalStatus != OK && mNumRetriesLeft == 0)) {
         return;
@@ -453,12 +445,16 @@ void NuCachedSource2::restartPrefetcherIfNecessary_l(
     mFetching = true;
 }
 
-ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
+ssize_t NuCachedFileSource2::readAt(off64_t offset, void *data, size_t size) {
     Mutex::Autolock autoSerializer(mSerializer);
 
     ALOGV("readAt offset %lld, size %d", offset, size);
 
     Mutex::Autolock autoLock(mLock);
+
+    int64_t now = ALooper::GetNowUs();
+
+    ++mNbrReads;
 
     // If the request can be completely satisfied from the cache, do so.
 
@@ -469,6 +465,10 @@ ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
 
         mLastAccessPos = offset + size;
 
+        if (now - mLastFetchEventTimeUs > kFetchIntervalUs) {
+            mLastFetchEventTimeUs = now;
+            (new AMessage(kWhatFetchMore, mReflector->id()))->post();
+        }
         return size;
     }
 
@@ -493,20 +493,24 @@ ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
         mLastAccessPos = offset + result;
     }
 
+    if (now - mLastFetchEventTimeUs > kFetchIntervalUs) {
+        mLastFetchEventTimeUs = now;
+        (new AMessage(kWhatFetchMore, mReflector->id()))->post();
+    }
     return (ssize_t)result;
 }
 
-size_t NuCachedSource2::cachedSize() {
+size_t NuCachedFileSource2::cachedSize() {
     Mutex::Autolock autoLock(mLock);
     return mCacheOffset + mCache->totalSize();
 }
 
-size_t NuCachedSource2::approxDataRemaining(status_t *finalStatus) const {
+size_t NuCachedFileSource2::approxDataRemaining(status_t *finalStatus) const {
     Mutex::Autolock autoLock(mLock);
     return approxDataRemaining_l(finalStatus);
 }
 
-size_t NuCachedSource2::approxDataRemaining_l(status_t *finalStatus) const {
+size_t NuCachedFileSource2::approxDataRemaining_l(status_t *finalStatus) const {
     *finalStatus = mFinalStatus;
 
     if (mFinalStatus != OK && mNumRetriesLeft > 0) {
@@ -521,10 +525,21 @@ size_t NuCachedSource2::approxDataRemaining_l(status_t *finalStatus) const {
     return 0;
 }
 
-ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
-    CHECK_LE(size, (size_t)mHighwaterThresholdBytes);
-
+ssize_t NuCachedFileSource2::readInternal(off64_t offset, void *data, size_t size) {
+    if (size > (size_t)mHighwaterThresholdBytes) {
+        return -EINVAL;
+    }
     ALOGV("readInternal offset %lld size %d", offset, size);
+
+    if (mBypassCache) {
+        if  (mNbrReads > kBypassCacheDuration) {
+            ALOGI("try to enable cache again");
+            mBypassCache = false;
+            mNbrReads = 0;
+            mNbrSeeks = 0;
+        }
+        return mSource->readAt(offset, data, size);
+    }
 
     Mutex::Autolock autoLock(mLock);
 
@@ -536,7 +551,10 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
     }
 
     if (offset < mCacheOffset
-            || offset >= (off64_t)(mCacheOffset + mCache->totalSize())) {
+            || offset >= (off64_t)(mCacheOffset + mCache->totalSize())
+            || (!mFetching
+                && offset <= (off_t)(mCacheOffset + mCache->totalSize())
+                && offset + size > mCacheOffset + mCache->totalSize())) {
         static const off64_t kPadding = 256 * 1024;
 
         // In the presence of multiple decoded streams, once of them will
@@ -577,12 +595,22 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
     return -EAGAIN;
 }
 
-status_t NuCachedSource2::seekInternal_l(off64_t offset) {
+status_t NuCachedFileSource2::seekInternal_l(off64_t offset) {
     mLastAccessPos = offset;
 
     if (offset >= mCacheOffset
             && offset <= (off64_t)(mCacheOffset + mCache->totalSize())) {
         return OK;
+    }
+
+    ++mNbrSeeks;
+    if (mNbrReads >= kBypassCacheCheckTrigger) {
+        if (mNbrSeeks * 100 / mNbrReads >= kBypassCacheThreshold) {
+            ALOGI("too many cache misses, bypassing cache");
+            mBypassCache = true;
+        }
+        mNbrReads = 0;
+        mNbrSeeks = 0;
     }
 
     ALOGI("new range: offset= %lld", offset);
@@ -593,34 +621,38 @@ status_t NuCachedSource2::seekInternal_l(off64_t offset) {
     CHECK_EQ(mCache->releaseFromStart(totalSize), totalSize);
 
     mNumRetriesLeft = kMaxNumRetries;
+    mFinalStatus = OK;
     mFetching = true;
+
+    mLastFetchEventTimeUs = ALooper::GetNowUs();
+    (new AMessage(kWhatFetchMore, mReflector->id()))->post();
 
     return OK;
 }
 
-void NuCachedSource2::resumeFetchingIfNecessary() {
+void NuCachedFileSource2::resumeFetchingIfNecessary() {
     Mutex::Autolock autoLock(mLock);
 
     restartPrefetcherIfNecessary_l(true /* ignore low water threshold */);
 }
 
-sp<DecryptHandle> NuCachedSource2::DrmInitialization(const char* mime) {
+sp<DecryptHandle> NuCachedFileSource2::DrmInitialization(const char* mime) {
     return mSource->DrmInitialization(mime);
 }
 
-void NuCachedSource2::getDrmInfo(sp<DecryptHandle> &handle, DrmManagerClient **client) {
+void NuCachedFileSource2::getDrmInfo(sp<DecryptHandle> &handle, DrmManagerClient **client) {
     mSource->getDrmInfo(handle, client);
 }
 
-String8 NuCachedSource2::getUri() {
+String8 NuCachedFileSource2::getUri() {
     return mSource->getUri();
 }
 
-String8 NuCachedSource2::getMIMEType() const {
+String8 NuCachedFileSource2::getMIMEType() const {
     return mSource->getMIMEType();
 }
 
-void NuCachedSource2::updateCacheParamsFromSystemProperty() {
+void NuCachedFileSource2::updateCacheParamsFromSystemProperty() {
     char value[PROPERTY_VALUE_MAX];
     if (!property_get("media.stagefright.cache-params", value, NULL)) {
         return;
@@ -629,7 +661,7 @@ void NuCachedSource2::updateCacheParamsFromSystemProperty() {
     updateCacheParamsFromString(value);
 }
 
-void NuCachedSource2::updateCacheParamsFromString(const char *s) {
+void NuCachedFileSource2::updateCacheParamsFromString(const char *s) {
     ssize_t lowwaterMarkKb, highwaterMarkKb;
     int keepAliveSecs;
 
@@ -671,7 +703,7 @@ void NuCachedSource2::updateCacheParamsFromString(const char *s) {
 }
 
 // static
-void NuCachedSource2::RemoveCacheSpecificHeaders(
+void NuCachedFileSource2::RemoveCacheSpecificHeaders(
         KeyedVector<String8, String8> *headers,
         String8 *cacheConfig,
         bool *disconnectAtHighwatermark) {
